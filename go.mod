@@ -1,6 +1,6 @@
 module github.com/fireeye/gocrack
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/asdine/storm v0.0.0-20190418133842-e0f77eada154
@@ -17,7 +17,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tankbusta/gzip v0.0.0-20171023233440-5ea045a82e8f
 	github.com/tchap/go-exchange v0.0.0-20141009085351-ebe3feb493da
-	golang.org/x/crypto v0.39.0
+	golang.org/x/crypto v0.45.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 	gopkg.in/ldap.v2 v2.5.1
 	gopkg.in/square/go-jose.v2 v2.6.0
@@ -65,9 +65,9 @@ require (
 	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
 	golang.org/x/arch v0.18.0 // indirect
-	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
