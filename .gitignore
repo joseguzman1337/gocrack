@@ -3,3 +3,6 @@ builds/
 .vscode/
 configs/
 coverage.txt
+# macOS system files
+.DS_Store
+._*
