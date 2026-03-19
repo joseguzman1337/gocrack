@@ -1,15 +1,31 @@
 package web
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fireeye/gocrack/server/storage"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/csrf"
 	"github.com/rs/zerolog/log"
 	uuid "github.com/satori/go.uuid"
+)
+
+const (
+	csrfCookieName  = "XSRF-TOKEN"
+	csrfHeaderName  = "X-Xsrf-Token"
+	csrfTokenSep    = "."
+)
+
+var (
+	currentCSRFSecret string
+	currentCSRFSecure bool
 )
 
 // logAction records potentially sensitive actions to the database for auditing purposes
@@ -65,7 +81,6 @@ func setSecureHeaders() gin.HandlerFunc {
 func setXSRFTokenIfNecessary(enabled bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !enabled {
-			csrf.UnsafeSkipCheck(c.Request)
 			c.Next()
 			return
 		}
@@ -77,22 +92,109 @@ func setXSRFTokenIfNecessary(enabled bool) gin.HandlerFunc {
 
 		// If the claim is strictly API use, enable a CSRF bypass
 		if claim.APIOnly {
-			csrf.UnsafeSkipCheck(c.Request)
 			c.Next()
 			return
 		}
 
 	SetCookie:
-		// Set the XSRF token so that the UI can get access to it
-		http.SetCookie(c.Writer, &http.Cookie{
-			Name:     "XSRF-TOKEN",
-			Value:    csrf.Token(c.Request),
-			HttpOnly: false,
-			Path:     "/",
-			Secure:   c.Request.URL.Scheme == "https",
-		})
+		setCSRFCookie(c, currentCSRFSecret, currentCSRFSecure)
 		c.Next()
 	}
+}
+
+func protectCSRF(enabled bool, secret string, secure bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !enabled {
+			c.Next()
+			return
+		}
+
+		claim := getClaimInformation(c)
+		if claim != nil && claim.APIOnly {
+			c.Next()
+			return
+		}
+
+		setCSRFCookie(c, secret, secure)
+		if isSafeMethod(c.Request.Method) {
+			c.Next()
+			return
+		}
+
+		token := c.GetHeader(csrfHeaderName)
+		if !validateCSRFCookie(secret, token) {
+			log.Error().
+				Str("client", c.Request.RemoteAddr).
+				Msg("A client failed CSRF protection")
+			c.AbortWithStatusJSON(http.StatusForbidden, &apiError{Error: "CSRF Validation Failed"})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+func setCSRFCookie(c *gin.Context, secret string, secure bool) {
+	if token, ok := validCSRFCookie(c.Request); ok {
+		c.Header(csrfHeaderName, token)
+		return
+	}
+
+	token, err := newCSRFCookieToken(secret)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate CSRF token")
+		return
+	}
+
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    token,
+		HttpOnly: false,
+		Path:     "/",
+		Secure:   secure,
+	})
+	c.Header(csrfHeaderName, token)
+}
+
+func validCSRFCookie(r *http.Request) (string, bool) {
+	cookie, err := r.Cookie(csrfCookieName)
+	if err != nil || cookie.Value == "" {
+		return "", false
+	}
+	return cookie.Value, true
+}
+
+func validateCSRFCookie(secret, token string) bool {
+	parts := strings.Split(token, csrfTokenSep)
+	if len(parts) != 2 {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(parts[0]))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(parts[1]), []byte(expected))
+}
+
+func newCSRFCookieToken(secret string) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString(raw)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	return payload + csrfTokenSep + hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // checkIfUserIsEntitled ensures the user is able to access the document.

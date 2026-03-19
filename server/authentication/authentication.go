@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -8,8 +9,8 @@ import (
 	"github.com/fireeye/gocrack/server/storage"
 	"github.com/fireeye/gocrack/shared"
 
-	jose "gopkg.in/square/go-jose.v2"
-	jwt "gopkg.in/square/go-jose.v2/jwt"
+	jose "github.com/go-jose/go-jose/v4"
+	jwt "github.com/go-jose/go-jose/v4/jwt"
 )
 
 var (
@@ -95,7 +96,7 @@ func convertError(err error) error {
 
 // WrapProvider returns an auth wrapper that is used by services like the API to perform authentication
 func WrapProvider(prov AuthAPI, as AuthSettings) *AuthWrapper {
-	k := []byte(*as.SecretKey)
+	k := deriveSigningKey(*as.SecretKey)
 	sig, err := jose.NewSigner(
 		jose.SigningKey{
 			Algorithm: jose.HS256,
@@ -112,6 +113,15 @@ func WrapProvider(prov AuthAPI, as AuthSettings) *AuthWrapper {
 		sig:     sig,
 		key:     k,
 	}
+}
+
+func deriveSigningKey(secret string) []byte {
+	k := []byte(secret)
+	if len(k) >= 32 {
+		return k
+	}
+	sum := sha256.Sum256(k)
+	return sum[:]
 }
 
 // Validate the configuration; setting default values and returning any errors
@@ -156,12 +166,12 @@ func (s *AuthWrapper) Login(username, password string, APIOnly bool) (string, er
 		},
 	}
 
-	return jwt.Signed(s.sig).Claims(claim).CompactSerialize()
+	return jwt.Signed(s.sig).Claims(claim).Serialize()
 }
 
 // VerifyClaim parses a raw JWT claim and validates it
 func (s *AuthWrapper) VerifyClaim(rawclaim, expSubj string, expAuds ...string) (*AuthClaim, error) {
-	tok, err := jwt.ParseSigned(rawclaim)
+	tok, err := jwt.ParseSigned(rawclaim, []jose.SignatureAlgorithm{jose.HS256})
 	if err != nil {
 		return nil, convertError(err)
 	}

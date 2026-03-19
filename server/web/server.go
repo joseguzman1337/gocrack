@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/csrf"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"github.com/tankbusta/gzip"
@@ -121,6 +120,11 @@ func newHTTPServer(cfg Config, s *Server) *http.Server {
 		isCSRFEnabled = false
 	}
 
+	currentCSRFSecret = cfg.UserInterface.CSRFKey
+	currentCSRFSecure = cfg.Listener.UseSSL
+
+	engine.Use(protectCSRF(isCSRFEnabled, cfg.UserInterface.CSRFKey, cfg.Listener.UseSSL))
+
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	rootAPIG := engine.Group(currentAPIVer)
@@ -195,24 +199,10 @@ func newHTTPServer(cfg Config, s *Server) *http.Server {
 	// END UI ENDPOINTS
 
 	var h http.Handler
-	if isCSRFEnabled {
-		h = csrf.Protect(
-			[]byte(cfg.UserInterface.CSRFKey),
-			csrf.RequestHeader("X-Xsrf-Token"),
-			csrf.Secure(cfg.Listener.UseSSL),
-			csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				log.Error().
-					Str("client", r.RemoteAddr).
-					Err(csrf.FailureReason(r)).
-					Msg("A client failed CSRF protection")
-
-				json.NewEncoder(w).Encode(&apiError{Error: "CSRF Validation Failed"})
-			})),
-		)(engine)
-	} else {
+	if !isCSRFEnabled {
 		log.Warn().Msg("CSRF Protection is disabled!")
-		h = engine
 	}
+	h = engine
 
 	return &http.Server{
 		Handler: h,
